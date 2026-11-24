@@ -41,6 +41,11 @@ docker compose exec gateway cat /usr/share/gsm-gateway/chan_quectel.source
 
 `gw-check` prints the same lines.
 
+The base image is pinned the same way, by the digest of `ubuntu:22.04` (`ARG UBUNTU` in the
+`Dockerfile`). Asterisk comes from the Ubuntu 22.04 package (18.10, `universe`), which gets few
+updates now that Asterisk 18 is out of support upstream. Moving to Asterisk 20 (Ubuntu 24.04)
+is planned; it needs the driver to be built and tested against it first.
+
 ## Updating the driver
 
 1. Choose the commit of the fork and get its tree id:

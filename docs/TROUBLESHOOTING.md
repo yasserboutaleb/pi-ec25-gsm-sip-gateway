@@ -41,12 +41,20 @@ The AT port cannot be opened.
 
 ## No voice at all in a call
 
-The call is set up and answered, but nobody hears anything, not even the ringback; the echo
-test `9600` works. With USB audio the driver writes the voice to the module at a steady pace,
-and the capture stream is linked to the playback stream. If the voice from SIP arrives in bursts
-(VPN, Wi-Fi, Internet), the playback buffer empties, both streams stop (XRUN), and the call stays
-silent both ways. Keep `JITTER_BUFFER=adaptive` (the default), or try `fixed`. On the host,
-`cat /proc/asound/card*/pcm0p/sub0/status` showing `XRUN` after a call points to this.
+The call is set up and answered, but nobody hears anything, not even the ringback; SMS work and
+the echo test `9600` works.
+
+- **The module's USB audio is stuck**: it sends only silence and ignores the voice it receives,
+  even though `AT+QPCMV?` still answers `1,2`. Seen once on the reference set-up, after days of
+  uptime. Restart the module; it leaves USB for about 20 s and the driver reconnects by itself:
+
+  ```
+  docker compose exec gateway asterisk -rx "quectel cmd quectel0 AT+CFUN=1,1"
+  ```
+
+- **Jitter**: with USB audio the driver writes the voice to the module at a steady pace. If the
+  voice from SIP arrives in bursts (VPN, Wi-Fi, Internet), keep `JITTER_BUFFER=adaptive` (the
+  default), or try `fixed`.
 
 ## The module disappears during calls, or resets
 

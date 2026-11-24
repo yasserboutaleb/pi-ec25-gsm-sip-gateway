@@ -13,9 +13,9 @@ It bridges the SIM card of the module to SIP:
 This project is a proof of feasibility, kept small on purpose: no web interface, one module,
 one call at a time, configuration in a single `.env` file.
 
-> Status: calls, SMS, USSD and the SIP side (softphone, server in both modes) are tested on an
-> amd64 bench with a simulated module (`tests/bench.sh`). Validation on a Raspberry Pi with an
-> EC25-E is in progress.
+> Status: tested on a Raspberry Pi 3 Model B+ with an EC25-E (USB audio, calls both ways, SMS,
+> USSD, a SIP server in `ip` mode through a VPN) and on a bench with a simulated module, run by
+> the CI on amd64 and arm64 (`tests/bench.sh`).
 
 ## How it works
 

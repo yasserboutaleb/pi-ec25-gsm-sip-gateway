@@ -189,7 +189,7 @@ wait_grep /res/at.log 'USSD-REQ *101#' 15
 sleep 3
 check "USSD from a local tool (ussd-console), reply text not in the log by default" "grep -q 'USSD-REQ \*101#' /res/at.log && ! grep -a -q 'Got USSD type' /res/asterisk.out"
 kill $LPID 2>/dev/null
-check "SMS and USSD: masked numbers in the log" "grep -a -q 'sms out 0639\.\.\.' /res/asterisk.out && grep -a -q 'sms in +336\.\.\.' /res/asterisk.out"
+check "SMS and USSD: masked numbers and USSD codes in the log" "grep -a -q 'sms out 0639\.\.\.' /res/asterisk.out && grep -a -q 'sms in +336\.\.\.' /res/asterisk.out && grep -a -q 'ussd request \*100\.\.\. 5 chars' /res/asterisk.out && ! grep -a -q 'ussd request \*100#' /res/asterisk.out"
 
 # ---------------------------------------------------------------- SIP server, "register" mode
 # The gateway registers with its account (password with & and |), sends the incoming GSM calls and
@@ -246,7 +246,7 @@ kill $REG 2>/dev/null
 python3 /t/fake_registrar.py 5080 - - /res/registrar-ip.log /ctrl-reg &
 REG=$!
 restart_gw SERVER_ENABLED=1 SERVER_MODE=ip SERVER_HOST=127.0.0.1 SERVER_PORT=5080 SERVER_EXTENSION=102 \
-	SERVER_LOCAL_ADDRESS=127.0.0.1 SOFTPHONE_PASSWORD= GSM_ECHO_TEST=0 USSD_LOG_TEXT=1
+	SERVER_LOCAL_ADDRESS=127.0.0.1 SOFTPHONE_PASSWORD= GSM_ECHO_TEST=0 USSD_LOG_TEXT=1 'DIAL_ALLOW=^(0[5-7]|[+]33[67])'
 astrx 'channel originate Local/s@ussd-console application QUECTEL_SEND_USSD quectel0,*102#' >/dev/null
 wait_grep /res/asterisk.out 'Got USSD type' 15
 check "USSD_LOG_TEXT=1: reply text in the log, in the driver's format (local tools)" "grep -a -q \"Got USSD type 0 '[^']*': \[Balance: 12.50 EUR, valid until 31/12, café included\]\" /res/asterisk.out"
@@ -260,12 +260,17 @@ echo "invite 0639980025" > /ctrl-reg
 dial_wait 0639980025
 check "ip mode: call from the server dialled to GSM" "grep -q 'ATD0639980025;' /res/at.log"
 echo "cancel" > /ctrl-reg; wait_free 10 >/dev/null
+# DIAL_ALLOW (^(0[5-7]|[+]33[67]) here): a number outside the pattern is refused, call and SMS
+python3 /t/sip_client.py message +88212345678 'premium' --user 102 > /res/sip-deny-msg.out 2>&1
+python3 /t/sip_client.py call +88212345679 --user 102 --wait 6 > /res/sip-deny-call.out 2>&1
+sleep 2
+check "DIAL_ALLOW: call and SMS to a number outside the pattern refused, nothing sent to the modem" "! grep -q -E 'SMS-OUT to=\+8821234567|ATD\+8821234567' /res/at.log && [ \$(grep -a -c 'not allowed by DIAL_ALLOW' /res/asterisk.out) -ge 2 ]"
 kill $REG 2>/dev/null
 # "docker compose run --rm gateway gw-config check": the entrypoint runs the command instead of the
 # gateway; check builds the whole configuration in a temporary folder (COUNTRY without tones is
 # refused) and never touches the configuration of the running Asterisk
 m0=$(md5sum /etc/asterisk/pjsip.conf /etc/asterisk/extensions.conf)
-check "entrypoint with a command: gw-config check runs, valid settings accepted, COUNTRY=xx refused, running configuration untouched" "/usr/local/sbin/entrypoint.sh gw-config check >/dev/null 2>&1 && ! COUNTRY=xx /usr/local/sbin/entrypoint.sh gw-config check >/dev/null 2>&1 && [ \"\$(md5sum /etc/asterisk/pjsip.conf /etc/asterisk/extensions.conf)\" = \"$m0\" ] && [ \$(pgrep -c -x asterisk) -eq 1 ]"
+check "entrypoint with a command: gw-config check runs, valid settings accepted, bad DIAL_ALLOW and COUNTRY=xx refused, running configuration untouched" "/usr/local/sbin/entrypoint.sh gw-config check >/dev/null 2>&1 && DIAL_ALLOW='^(0[67]|[+]33[67])[0-9]{8}\$' /usr/local/sbin/entrypoint.sh gw-config check >/dev/null 2>&1 && ! DIAL_ALLOW='0;6' /usr/local/sbin/entrypoint.sh gw-config check >/dev/null 2>&1 && ! DIAL_ALLOW='(0' /usr/local/sbin/entrypoint.sh gw-config check >/dev/null 2>&1 && ! COUNTRY=xx /usr/local/sbin/entrypoint.sh gw-config check >/dev/null 2>&1 && [ \"\$(md5sum /etc/asterisk/pjsip.conf /etc/asterisk/extensions.conf)\" = \"$m0\" ] && [ \$(pgrep -c -x asterisk) -eq 1 ]"
 check "full numbers never in the log (GSM_VERBOSE=0)" "! grep -a -q -E '06399800[0-9][0-9]|336399800[0-9][0-9]' /res/asterisk.out"
 check "Asterisk still running (no crash)" "pgrep -x asterisk >/dev/null"
 

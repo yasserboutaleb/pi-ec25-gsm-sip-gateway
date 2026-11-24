@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.1 (unreleased)
+
+- `DIAL_ALLOW`: numbers allowed for calls and SMS (regular expression), against toll fraud
+  with a stolen password; refused numbers never reach the module.
+- USSD codes masked in the log, like numbers (a recharge or payment code can be in them).
+- `docs/SECURITY.md`: the nftables example accepts an `ip` mode server only on its VPN
+  interface (an address alone can be forged from the LAN) and rate-limits SIP from the LAN;
+  `ip` mode is for a VPN or a trusted LAN, `register` mode on a shared LAN.
+- Base image pinned by digest (`ubuntu:22.04`), like the driver.
+- Tested on a Raspberry Pi 3 Model B+ with an EC25-E; hardware guide with photos, USB cable
+  and power supply advice; troubleshooting for a module whose USB audio is stuck.
+
 ## 0.1.0 (2026-11-24)
 
 First version.

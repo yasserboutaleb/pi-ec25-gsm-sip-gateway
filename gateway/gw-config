@@ -40,6 +40,7 @@ load() {
 	USSD_LOG_TEXT=${USSD_LOG_TEXT:-0}
 	RINGBACK=${RINGBACK:-network}
 	JITTER_BUFFER=${JITTER_BUFFER:-adaptive}
+	DIAL_ALLOW=${DIAL_ALLOW:-}
 	COUNTRY=${COUNTRY:-fr}
 	SIP_BIND=${SIP_BIND:-0.0.0.0}
 	SIP_PORT=${SIP_PORT:-5060}
@@ -103,6 +104,17 @@ validate() {
 	done
 	case "$RINGBACK" in local) RINGBACK_OPT=r ;; network) RINGBACK_OPT= ;; *) bad "RINGBACK: local or network" ;; esac
 	case "$JITTER_BUFFER" in adaptive|fixed|off) ;; *) bad "JITTER_BUFFER: adaptive, fixed or off" ;; esac
+	# numbers allowed for calls and SMS (extended regular expression): characters that would break the
+	# dialplan are refused; write [+] for a literal +
+	if [ -n "$DIAL_ALLOW" ]; then
+		case "$DIAL_ALLOW" in
+			*[[:space:]\\\"\;,]* | *'${'* | *'$['*)
+				bad 'DIAL_ALLOW: no space, backslash, quote, semicolon, comma, ${ or $[ (write [+] for a literal +)' ;;
+			*)
+				rc=0; printf '' | grep -E -e "$DIAL_ALLOW" >/dev/null 2>&1 || rc=$?
+				[ "$rc" -le 1 ] || bad "DIAL_ALLOW: invalid regular expression" ;;
+		esac
+	fi
 	match "$COUNTRY" '^[a-z]{2}$' || bad "COUNTRY: two-letter code, e.g. fr"
 	ipv4 "$SIP_BIND" || bad "SIP_BIND: IPv4 address (0.0.0.0 = all addresses of the host)"
 	num "$SIP_PORT" && [ "$SIP_PORT" -le 65535 ] || bad "SIP_PORT: invalid port"
@@ -138,7 +150,7 @@ render() { # $1 = template, $2 = destination
 	    -e "s|@SOFTPHONE_ON@|$SOFTPHONE_ON|g" -e "s|@SOFTPHONE_USERNAME@|$SOFTPHONE_USERNAME|g" \
 	    -e "s|@SOFTPHONE_PASSWORD@|$(sedq "$SOFTPHONE_PASSWORD")|g" -e "s|@SOFTPHONE_NETWORK@|$SOFTPHONE_NETWORK|g" \
 	    -e "s|@GSM_IN_DIAL@|$(sedq "$GSM_IN_DIAL")|g" -e "s|@GSM_ECHO_TEST@|$GSM_ECHO_TEST|g" \
-	    -e "s|@USSD_ENABLED@|$USSD_ENABLED|g" -e "s|@USSD_LOG_TEXT@|$USSD_LOG_TEXT|g" -e "s|@RINGBACK_OPT@|$RINGBACK_OPT|g" -e "s|@JITTER_BUFFER@|$JITTER_BUFFER|g" -e "s|@COUNTRY@|$COUNTRY|g" \
+	    -e "s|@USSD_ENABLED@|$USSD_ENABLED|g" -e "s|@USSD_LOG_TEXT@|$USSD_LOG_TEXT|g" -e "s|@RINGBACK_OPT@|$RINGBACK_OPT|g" -e "s|@JITTER_BUFFER@|$JITTER_BUFFER|g" -e "s|@DIAL_ALLOW@|$(sedq "$DIAL_ALLOW")|g" -e "s|@COUNTRY@|$COUNTRY|g" \
 	    -e "s|@SIP_BIND@|$SIP_BIND|g" -e "s|@SIP_PORT@|$SIP_PORT|g" \
 	    -e "s|@RTP_START@|$RTP_START|g" -e "s|@RTP_END@|$RTP_END|g" -e "s|@VERBOSE@|$GSM_VERBOSE|g" \
 	    "$1" > "$2"
@@ -205,7 +217,7 @@ show() {
 	for v in MODEM_DATA_PORT MODEM_AUDIO MODEM_ALSA_DEVICE MODEM_AUDIO_PORT MODEM_CLCC_POLL \
 	         SERVER_ENABLED SERVER_MODE SERVER_HOST SERVER_PORT SERVER_USERNAME SERVER_PASSWORD SERVER_EXTENSION \
 	         SERVER_CODEC SERVER_LOCAL_ADDRESS SOFTPHONE_USERNAME SOFTPHONE_PASSWORD SOFTPHONE_NETWORK \
-	         INCOMING_CALLS_TO GSM_ECHO_TEST USSD_ENABLED USSD_LOG_TEXT RINGBACK JITTER_BUFFER COUNTRY SIP_BIND SIP_PORT RTP_START RTP_END GSM_VERBOSE; do
+	         INCOMING_CALLS_TO GSM_ECHO_TEST USSD_ENABLED USSD_LOG_TEXT RINGBACK JITTER_BUFFER DIAL_ALLOW COUNTRY SIP_BIND SIP_PORT RTP_START RTP_END GSM_VERBOSE; do
 		eval "x=\$$v"
 		case "$v" in *PASSWORD) [ -n "$x" ] && x='<hidden>' ;; esac
 		echo "$v=$x"

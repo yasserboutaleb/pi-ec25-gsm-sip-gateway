@@ -28,9 +28,11 @@ is open: the Asterisk manager (AMI) is disabled and no HTTP or ARI module is loa
           type filter hook input priority filter - 1; policy accept;
           iif "lo" accept
           ct state established,related accept
-          udp dport { 5060, 10000-10100 } ip saddr 192.168.1.0/24 accept
-          # ip mode, or a server on another network: its address
-          # udp dport { 5060, 10000-10100 } ip saddr 10.8.0.1 accept
+          # softphones on the LAN; SIP limited to 20 packets/s per address (password guessing)
+          udp dport 5060 ip saddr 192.168.1.0/24 meter sip_lan { ip saddr limit rate 20/second burst 40 packets } accept
+          udp dport 10000-10100 ip saddr 192.168.1.0/24 accept
+          # ip mode: the server only through the VPN interface, never by its address alone
+          # iifname "wg0" udp dport { 5060, 10000-10100 } ip saddr 10.8.0.1 accept
           udp dport { 5060, 10000-10100 } drop
       }
   }
@@ -39,6 +41,13 @@ is open: the Asterisk manager (AMI) is disabled and no HTTP or ARI module is loa
   Load it with `sudo nft -f gsm-gateway.nft`. To keep it across reboots, add it to your
   firewall's configuration **without** a `flush ruleset`, which would also remove Docker's
   rules.
+
+  In `ip` mode, accept the server **only on the interface of the VPN** (`iifname`, here
+  `wg0`). A rule on the address alone is not enough: with the reverse path filter in loose
+  mode (the default of Ubuntu and Raspberry Pi OS), a device of the LAN can send packets with
+  the server's address to the LAN interface; the host accepts them, and the gateway takes them
+  for the server and places calls. The `meter` rule slows down password guessing from the LAN
+  (packets above the rate fall through to the `drop` rule).
 
 ## SIP access control
 
@@ -51,7 +60,12 @@ is open: the Asterisk manager (AMI) is disabled and no HTTP or ARI module is loa
   (fail2ban or similar if it is on the Internet).
 - **Server, `ip` mode**: identified by its IP address only, without a password. Use it only
   on a network where nobody else can send packets with that address: a VPN of the host, or a
-  trusted LAN. On a shared LAN any device can take the server's address and place calls.
+  trusted LAN. On a shared LAN any device can take the server's address and place calls: use
+  `register` mode there. With a VPN, filter on its interface (example above).
+- **Numbers that can be reached**: by default any number, including international and premium
+  ones. Set `DIAL_ALLOW` to the numbers you really call (a regular expression, see
+  [INSTALL.md](INSTALL.md)), so that a stolen password or a forged request cannot run up a bill on
+  premium or international numbers. It applies to calls and SMS; USSD codes are not filtered.
 - **No TLS, no SRTP** in this version: SIP and RTP are not encrypted. When the server is not on
   the LAN, carry the traffic in a VPN (WireGuard, OpenVPN...), or accept that calls and SMS
   cross the Internet in clear text.
@@ -86,7 +100,8 @@ containing `&`, and checks that they reach the network unchanged or are refused.
 ## Privacy of the logs
 
 - With `GSM_VERBOSE=0` (default) the log shows numbers masked to their first four characters
-  (`call in +336...`, `sms out 0639...`) and the length of SMS texts, never the texts.
+  (`call in +336...`, `sms out 0639...`) and the length of SMS texts, never the texts. USSD codes
+  are masked the same way (`ussd request *123...`): a recharge or payment code can be in them.
   Warnings of the driver about an unknown call may still show a number.
 - `GSM_VERBOSE` above 0 shows full numbers and SMS texts: use it for a debugging session only.
 - `USSD_LOG_TEXT=1` writes the text of USSD replies in the log (balance, menu, sometimes a

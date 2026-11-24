@@ -11,7 +11,7 @@ Example values on this page:
 | SIP server | `pbx.example.com` |
 | Gateway account on the server (`register` mode) | `gw1` |
 | Extension of the user's phone, which receives GSM calls and SMS | `101` |
-| `ip` mode: server and gateway addresses (same LAN, or a VPN of the host) | server `10.8.0.1`, gateway `10.8.0.2` |
+| `ip` mode: server and gateway addresses (a VPN of the host, or a trusted LAN) | server `10.8.0.1`, gateway `10.8.0.2` |
 
 ## What the gateway sends and accepts
 
@@ -174,7 +174,9 @@ SIM's subscription.
 ## IP mode (trusted peer)
 
 Use this mode when the server and the gateway share a private network that nobody else can
-use: a VPN configured on the host (WireGuard, OpenVPN...), or a trusted LAN. No password is
+use: a VPN configured on the host (WireGuard, OpenVPN...), or a trusted LAN. On a shared LAN, use
+`register` mode: any device could send requests with the server's address. With a VPN, accept the
+server on the VPN interface only ([SECURITY.md](SECURITY.md#network-exposure)). No password is
 used.
 
 `.env` of the gateway:

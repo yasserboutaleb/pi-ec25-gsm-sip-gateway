@@ -4,7 +4,10 @@
 # (a GitHub tarball is not byte-stable, a Git tree id is). To update the driver, change the
 # two ARG lines below and run the bench (tests/bench.sh).
 
-ARG UBUNTU=ubuntu:22.04
+# Base image pinned by digest (multi-architecture index of ubuntu:22.04, 2026-11-24): the same
+# image on amd64 and arm64 until it is updated on purpose. Packages still come from the Ubuntu
+# archive at build time (security updates included).
+ARG UBUNTU=ubuntu:22.04@sha256:b000e69a50ff940390233025e7a337fb8469b509e2334fa4d018ac30f3e18cdb
 
 # ---------------------------------------------------------------- driver build
 FROM ${UBUNTU} AS driver
