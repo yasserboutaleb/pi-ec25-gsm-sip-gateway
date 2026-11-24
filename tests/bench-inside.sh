@@ -185,7 +185,7 @@ check "USSD: *100# dialled from the softphone, sent to the modem (AT+CUSD)" "gre
 check "USSD: reply -> softphone MESSAGE from ussd, text unchanged" "grep -F 'MESSAGE-IN from=<sip:ussd@' /res/sip-listen.out | grep -q -F \"body=Balance: 12.50 EUR, valid until 31/12, café included\""
 # USSD from a local tool (ussd-console context, no SIP call); USSD_LOG_TEXT=0: reply text not logged
 astrx 'channel originate Local/s@ussd-console application QUECTEL_SEND_USSD quectel0,*101#' >/dev/null
-wait_grep /res/at.log 'USSD-REQ \*101#' 15
+wait_grep /res/at.log 'USSD-REQ *101#' 15
 sleep 3
 check "USSD from a local tool (ussd-console), reply text not in the log by default" "grep -q 'USSD-REQ \*101#' /res/at.log && ! grep -a -q 'Got USSD type' /res/asterisk.out"
 kill $LPID 2>/dev/null
@@ -232,6 +232,7 @@ python3 /t/sip_client.py message 0639980028 'spoofed' --user server --port 5073 
 python3 /t/sip_client.py call 0639980029 --user server --port 5073 --wait 8 > /res/sip-spoof-call.out 2>&1
 sleep 2
 check "register mode: From user \"server\" without password or line refused (no SMS, no call)" "! grep -q -E 'SMS-OUT to=0639980028|ATD0639980029' /res/at.log && ! grep -q -E ' -> 20[02]' /res/sip-spoof-msg.out /res/sip-spoof-call.out"
+wait_free 20 >/dev/null   # the line may still be releasing the previous call
 echo "invite 0639980022" > /ctrl-reg
 dial_wait 0639980022
 check "register mode: call from the server (registered line) dialled to GSM" "grep -q 'ATD0639980022;' /res/at.log"
@@ -250,7 +251,7 @@ astrx 'channel originate Local/s@ussd-console application QUECTEL_SEND_USSD quec
 wait_grep /res/asterisk.out 'Got USSD type' 15
 check "USSD_LOG_TEXT=1: reply text in the log, in the driver's format (local tools)" "grep -a -q \"Got USSD type 0 '[^']*': \[Balance: 12.50 EUR, valid until 31/12, café included\]\" /res/asterisk.out"
 echo "sms +33639980023 Message in ip mode" > /ctrl
-wait_grep /res/registrar-ip.log 'MESSAGE-200' 15
+wait_grep /res/registrar-ip.log 'from=<sip:+33639980023@127.0.0.1>' 15
 check "ip mode: SMS in -> MESSAGE to 102, sender's number as From user" "grep 'MESSAGE-200' /res/registrar-ip.log | grep -q 'from=<sip:+33639980023@127.0.0.1>' && grep 'MESSAGE-200' /res/registrar-ip.log | grep -q 'body=Message in ip mode'"
 python3 /t/sip_client.py message 0639980024 'From the server' --user 102 > /res/sip-message-ip.out 2>&1
 wait_grep /res/at.log 'SMS-OUT to=0639980024 ' 15
