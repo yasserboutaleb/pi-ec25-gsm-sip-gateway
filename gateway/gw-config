@@ -38,6 +38,7 @@ load() {
 	GSM_ECHO_TEST=${GSM_ECHO_TEST:-0}
 	USSD_ENABLED=${USSD_ENABLED:-1}
 	USSD_LOG_TEXT=${USSD_LOG_TEXT:-0}
+	USSD_REPLY_FILE=${USSD_REPLY_FILE:-}
 	RINGBACK=${RINGBACK:-network}
 	JITTER_BUFFER=${JITTER_BUFFER:-adaptive}
 	DIAL_ALLOW=${DIAL_ALLOW:-}
@@ -118,6 +119,12 @@ validate() {
 	fi
 	match "$COUNTRY" '^[a-z]{2}$' || bad "COUNTRY: two-letter code, e.g. fr"
 	ipv4 "$SIP_BIND" || bad "SIP_BIND: IPv4 address (0.0.0.0 = all addresses of the host)"
+	# file holding the last USSD reply, for a local tool: under /run or /tmp, no ".." (directory created
+	# by the entrypoint)
+	if [ -n "$USSD_REPLY_FILE" ]; then
+		match "$USSD_REPLY_FILE" '^/(run|tmp)/[A-Za-z0-9._/-]*[A-Za-z0-9_-]$' && ! match "$USSD_REPLY_FILE" '(^|/)\.\.(/|$)' \
+			|| bad "USSD_REPLY_FILE: absolute path of a file under /run or /tmp (letters, digits, . _ - /, no ..)"
+	fi
 	num "$SIP_PORT" && [ "$SIP_PORT" -le 65535 ] || bad "SIP_PORT: invalid port"
 	num "$RTP_START" && num "$RTP_END" && [ "$RTP_START" -lt "$RTP_END" ] && [ "$RTP_END" -le 65535 ] || bad "RTP_START, RTP_END: port range"
 	num "$GSM_VERBOSE" && [ "$GSM_VERBOSE" -le 5 ] || bad "GSM_VERBOSE: 0 to 5"
@@ -151,7 +158,7 @@ render() { # $1 = template, $2 = destination
 	    -e "s|@SOFTPHONE_ON@|$SOFTPHONE_ON|g" -e "s|@SOFTPHONE_USERNAME@|$SOFTPHONE_USERNAME|g" \
 	    -e "s|@SOFTPHONE_PASSWORD@|$(sedq "$SOFTPHONE_PASSWORD")|g" -e "s|@SOFTPHONE_NETWORK@|$SOFTPHONE_NETWORK|g" \
 	    -e "s|@GSM_IN_DIAL@|$(sedq "$GSM_IN_DIAL")|g" -e "s|@GSM_ECHO_TEST@|$GSM_ECHO_TEST|g" \
-	    -e "s|@USSD_ENABLED@|$USSD_ENABLED|g" -e "s|@USSD_LOG_TEXT@|$USSD_LOG_TEXT|g" -e "s|@RINGBACK_OPT@|$RINGBACK_OPT|g" -e "s|@JITTER_BUFFER@|$JITTER_BUFFER|g" -e "s|@DIAL_ALLOW@|$(sedq "$DIAL_ALLOW")|g" -e "s|@COUNTRY@|$COUNTRY|g" \
+	    -e "s|@USSD_ENABLED@|$USSD_ENABLED|g" -e "s|@USSD_LOG_TEXT@|$USSD_LOG_TEXT|g" -e "s|@USSD_REPLY_FILE@|$USSD_REPLY_FILE|g" -e "s|@RINGBACK_OPT@|$RINGBACK_OPT|g" -e "s|@JITTER_BUFFER@|$JITTER_BUFFER|g" -e "s|@DIAL_ALLOW@|$(sedq "$DIAL_ALLOW")|g" -e "s|@COUNTRY@|$COUNTRY|g" \
 	    -e "s|@SIP_BIND@|$SIP_BIND|g" -e "s|@SIP_PORT@|$SIP_PORT|g" \
 	    -e "s|@RTP_START@|$RTP_START|g" -e "s|@RTP_END@|$RTP_END|g" -e "s|@VERBOSE@|$GSM_VERBOSE|g" \
 	    "$1" > "$2"
@@ -178,6 +185,7 @@ generate() {
 	render "$TPL/pjsip.conf" "$new/pjsip.conf"
 	drop=
 	[ "$SOFTPHONE_ON" = 1 ] || drop="$drop softphone"
+	[ "$SIP_BIND" != 0.0.0.0 ] || drop="$drop mediaaddr"
 	if [ "$SERVER_ON" = 1 ]; then
 		[ "$SERVER_MODE" = register ] && drop="$drop ip" || drop="$drop register"
 	else
@@ -218,7 +226,7 @@ show() {
 	for v in MODEM_DATA_PORT MODEM_AUDIO MODEM_ALSA_DEVICE MODEM_AUDIO_PORT MODEM_CLCC_POLL \
 	         SERVER_ENABLED SERVER_MODE SERVER_HOST SERVER_PORT SERVER_USERNAME SERVER_PASSWORD SERVER_EXTENSION \
 	         SERVER_CODEC SERVER_LOCAL_ADDRESS SOFTPHONE_USERNAME SOFTPHONE_PASSWORD SOFTPHONE_NETWORK \
-	         INCOMING_CALLS_TO GSM_ECHO_TEST USSD_ENABLED USSD_LOG_TEXT RINGBACK JITTER_BUFFER DIAL_ALLOW COUNTRY SIP_BIND SIP_PORT RTP_START RTP_END GSM_VERBOSE; do
+	         INCOMING_CALLS_TO GSM_ECHO_TEST USSD_ENABLED USSD_LOG_TEXT USSD_REPLY_FILE RINGBACK JITTER_BUFFER DIAL_ALLOW COUNTRY SIP_BIND SIP_PORT RTP_START RTP_END GSM_VERBOSE; do
 		eval "x=\$$v"
 		case "$v" in *PASSWORD) [ -n "$x" ] && x='<hidden>' ;; esac
 		echo "$v=$x"

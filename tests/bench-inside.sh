@@ -208,8 +208,9 @@ restart_gw() {
 python3 /t/fake_registrar.py 5080 gw 'gw&pass1|x' /res/registrar.log /ctrl-reg &
 REG=$!
 restart_gw SERVER_ENABLED=1 SERVER_MODE=register SERVER_HOST=127.0.0.1 SERVER_PORT=5080 SERVER_USERNAME=gw \
-	'SERVER_PASSWORD=gw&pass1|x' SERVER_EXTENSION=102 GSM_ECHO_TEST=0
+	'SERVER_PASSWORD=gw&pass1|x' SERVER_EXTENSION=102 GSM_ECHO_TEST=0 USSD_REPLY_FILE=/run/gsm-gateway/ussd-reply
 for i in $(seq 1 30); do astrx 'pjsip show registrations' | grep 'server-reg' | grep -q ' Registered' && break; sleep 1; done
+check "SIP_BIND=0.0.0.0 (default): no media_address on the endpoints" "astrx 'pjsip show endpoint server' | grep -q -E '^ *media_address +: *$' && ! grep -q media_address /etc/asterisk/pjsip.conf"
 check "register mode: registered after digest authentication (${i} s)" "grep -q 'REGISTER-401' /res/registrar.log && grep -q 'REGISTER-200' /res/registrar.log"
 k0=$(grep -c -E 'AT\+QHUP=17,' /res/at.log)
 echo "ring +33639980020" > /ctrl
@@ -238,6 +239,23 @@ dial_wait 0639980022
 check "register mode: call from the server (registered line) dialled to GSM" "grep -q 'ATD0639980022;' /res/at.log"
 echo "cancel" > /ctrl-reg; t=$(wait_free 10)
 check "register mode: call cancelled by the server, line free (${t} s)" "dev_free && calls_empty"
+# USSD_REPLY_FILE: a menu reply (type 1) then the final reply replace the file in turn (type,
+# description, text); the text never goes to the log (USSD_LOG_TEXT=0 here)
+F=/run/gsm-gateway/ussd-reply
+echo "ussd_type 1" > /ctrl; echo "ussd_reply Menu: 1 Recharge, 2 Balance" > /ctrl; sleep 1
+rm -f $F
+astrx 'channel originate Local/s@ussd-console application QUECTEL_SEND_USSD quectel0,*111#' >/dev/null
+for _ in $(seq 1 15); do [ -s $F ] && break; sleep 1; done; sleep 1
+cp $F /res/ussd-reply-1.txt 2>/dev/null
+echo "ussd_type 0" > /ctrl; echo "ussd_reply Recharge done: 5.00, café" > /ctrl; sleep 1
+rm -f $F
+astrx 'channel originate Local/s@ussd-console application QUECTEL_SEND_USSD quectel0,1' >/dev/null
+for _ in $(seq 1 15); do [ -s $F ] && break; sleep 1; done; sleep 1
+cp $F /res/ussd-reply-2.txt 2>/dev/null
+printf '1\nUSSD Request\nMenu: 1 Recharge, 2 Balance' > /res/expect-ussd-1.txt
+printf '0\nUSSD Notify\nRecharge done: 5.00, café' > /res/expect-ussd-2.txt
+echo "ussd_reply Balance: 12.50 EUR, valid until 31/12, café included" > /ctrl
+check "USSD_REPLY_FILE: menu (type 1) then final reply written to the file, folder 700, nothing in the log" "cmp -s /res/expect-ussd-1.txt /res/ussd-reply-1.txt && cmp -s /res/expect-ussd-2.txt /res/ussd-reply-2.txt && [ \$(stat -c %a /run/gsm-gateway) = 700 ] && ! grep -a -q -E 'Recharge|Menu: 1' /res/asterisk.out"
 kill $REG 2>/dev/null
 
 # ---------------------------------------------------------------- SIP server, "ip" mode
@@ -246,7 +264,9 @@ kill $REG 2>/dev/null
 python3 /t/fake_registrar.py 5080 - - /res/registrar-ip.log /ctrl-reg &
 REG=$!
 restart_gw SERVER_ENABLED=1 SERVER_MODE=ip SERVER_HOST=127.0.0.1 SERVER_PORT=5080 SERVER_EXTENSION=102 \
-	SERVER_LOCAL_ADDRESS=127.0.0.1 SOFTPHONE_PASSWORD= GSM_ECHO_TEST=0 USSD_LOG_TEXT=1 'DIAL_ALLOW=^([0-9]{2,3}|0[5-7][0-9]{8}|[+]33[67][0-9]{8})$'
+	SERVER_LOCAL_ADDRESS=127.0.0.1 SOFTPHONE_PASSWORD= GSM_ECHO_TEST=0 USSD_LOG_TEXT=1 'DIAL_ALLOW=^([0-9]{2,3}|0[5-7][0-9]{8}|[+]33[67][0-9]{8})$' SIP_BIND=127.0.0.1
+# SIP_BIND=127.0.0.1: SDP and RTP of the endpoints from that address (several gateways on one host)
+check "SIP_BIND set to one address: media_address and bind_rtp_to_media_address on the server endpoint" "astrx 'pjsip show endpoint server' | grep -q -E '^ *media_address +: 127\.0\.0\.1' && astrx 'pjsip show endpoint server' | grep -q -E '^ *bind_rtp_to_media_address +: true'"
 astrx 'channel originate Local/s@ussd-console application QUECTEL_SEND_USSD quectel0,*102#' >/dev/null
 wait_grep /res/asterisk.out 'Got USSD type' 15
 check "USSD_LOG_TEXT=1: reply text in the log, in the driver's format (local tools)" "grep -a -q \"Got USSD type 0 '[^']*': \[Balance: 12.50 EUR, valid until 31/12, café included\]\" /res/asterisk.out"

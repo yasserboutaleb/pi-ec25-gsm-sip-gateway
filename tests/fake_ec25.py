@@ -7,13 +7,14 @@ what the driver does when it owns the module, in PDU mode with the UCS2 characte
 
   incoming SMS   +CMTI: "ME",<idx>  ->  AT+CMGR=<idx> answers the SMS-DELIVER PDU  ->  AT+CMGD=<idx>
   outgoing SMS   AT+CMGS=<len>  ->  "> " prompt  ->  SMS-SUBMIT PDU ended by Ctrl-Z  ->  +CMGS: <ref>
-  USSD           AT+CUSD=1,"<UCS2 hex>",15  ->  OK, then +CUSD: 0,"<UCS2 hex>",72
+  USSD           AT+CUSD=1,"<UCS2 hex>",15  ->  OK, then +CUSD: <type>,"<UCS2 hex>",72
 
 Extra control commands (same FIFO as fake_eg06.py):
     sms <from> <text>        incoming SMS, GSM 7-bit alphabet when possible, otherwise UCS2
     sms_long <from> <text>   incoming SMS in 2 parts (concatenated, 8-bit reference), 2 s apart
     sms_burst <from> <text>  the same, both parts announced at once
     ussd_reply <text>        reply to the next USSD request (default: a balance message)
+    ussd_type <n>            type of the next USSD replies: 0 final (default), 1 menu (further action)
 
 Log lines (argument 2, UTF-8), checked by the bench:
     SMS-IN idx=<n> from=<number>              PDU stored, +CMTI sent
@@ -36,7 +37,7 @@ GSM7_EXT = {0x0A: "\f", 0x14: "^", 0x28: "{", 0x29: "}", 0x2F: "\\", 0x3C: "[", 
 assert len(GSM7) == 128
 
 store = {}                      # SMS storage: idx -> (tpdu length, PDU hex)
-state = {"cmgs": None, "mr": 0, "ussd": "Balance: 12.50 EUR, valid until 31/12, café included"}
+state = {"cmgs": None, "mr": 0, "ussd": "Balance: 12.50 EUR, valid until 31/12, café included", "ussd_type": 0}
 
 
 def w(line):
@@ -202,7 +203,7 @@ def handle(cmd):
         w("USSD-REQ %s" % code)
         base.reply()
         time.sleep(0.5)
-        base.out('\r\n+CUSD: 0,"%s",72\r\n' % state["ussd"].encode("utf-16-be").hex().upper())
+        base.out('\r\n+CUSD: %d,"%s",72\r\n' % (state["ussd_type"], state["ussd"].encode("utf-16-be").hex().upper()))
         return
     base.handle(cmd)
 
@@ -234,6 +235,8 @@ def control(line):
         # sms_long: second part 2 s later, as usual on the network; sms_burst: right away
         delay = 2.0 if parts[0] == "sms_long" else 0.0
         scheduled.append((time.time() + delay, lambda: store_sms(parts[1], text[half:], udh[1])))
+    elif parts and parts[0] == "ussd_type" and len(parts) > 1:
+        state["ussd_type"] = int(parts[1])
     elif parts and parts[0] == "ussd_reply":
         state["ussd"] = line.split(None, 1)[1] if len(parts) > 1 else ""
     else:

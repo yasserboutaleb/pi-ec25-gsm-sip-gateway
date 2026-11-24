@@ -106,6 +106,8 @@ containing `&`, and checks that they reach the network unchanged or are refused.
 - `GSM_VERBOSE` above 0 shows full numbers and SMS texts: use it for a debugging session only.
 - `USSD_LOG_TEXT=1` writes the text of USSD replies in the log (balance, menu, sometimes a
   code). Turn it on only for a local tool that needs it, on a host that only you can read.
+- `USSD_REPLY_FILE` keeps the last USSD reply in a file instead of the log: keep that file on a
+  `tmpfs` (`/run`), readable by root only, and delete it once read.
 - Docker keeps at most 3 log files of 5 MB (`logging` in `compose.yaml`).
 
 ## Container

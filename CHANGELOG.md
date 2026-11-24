@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.3 (2026-11-24)
+
+- `USSD_REPLY_FILE`: each USSD reply (type, description, text) written to a file for a local
+  tool, such as an interactive USSD console, with nothing in the log.
+- `SIP_BIND` set to one address: the media (SDP and RTP) use it too, so several gateways can
+  share a host, each with its own address.
+
 ## 0.1.2 (2026-11-24)
 
 - `DIAL_ALLOW` accepts commas, as in `[0-9]{2,3}`: they were refused, and the gateway did not

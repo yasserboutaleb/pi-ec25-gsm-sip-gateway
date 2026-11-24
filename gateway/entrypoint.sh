@@ -17,6 +17,15 @@ if [ "${MODEM_AUDIO:-uac}" = uac ] && ! ls /dev/snd/by-id/usb-* >/dev/null 2>&1;
 	echo "gateway: warning: no USB sound card: USB audio of the modem not enabled (AT+QCFG=\"USBCFG\", see docs/HARDWARE.md)" >&2
 fi
 
+# USSD_REPLY_FILE (validated by gw-config): its folder, readable by root only (never /run or /tmp
+# themselves); no reply left from a previous run
+if [ -n "${USSD_REPLY_FILE:-}" ]; then
+	d=$(dirname "$USSD_REPLY_FILE")
+	mkdir -p "$d"
+	case "$d" in /run | /tmp) ;; *) chmod 700 "$d" ;; esac
+	rm -f "$USSD_REPLY_FILE"
+fi
+
 mkdir -p /var/run/asterisk /var/log/asterisk /var/lib/asterisk /var/spool/asterisk
 # Asterisk runs as root in the container: the known-working setup for the serial and ALSA devices.
 exec /usr/sbin/asterisk -f
