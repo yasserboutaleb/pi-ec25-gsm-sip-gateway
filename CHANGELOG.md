@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.1 (unreleased)
+## 0.1.1 (2026-11-24)
 
 - `DIAL_ALLOW`: numbers allowed for calls and SMS (regular expression), against toll fraud
   with a stolen password; refused numbers never reach the module.
