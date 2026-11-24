@@ -1,0 +1,50 @@
+# Static checks, then the functional bench (simulated modem, SIP softphone and SIP server) on
+# amd64 and arm64. The same scripts run on a workstation with Docker: tests/lint.sh, tests/bench.sh.
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  lint:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: ShellCheck, hadolint, ruff, actionlint, links, gitleaks
+        run: sh tests/lint.sh
+
+  bench:
+    needs: lint
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Build the image and run the bench
+        run: sh tests/bench.sh
+      - name: Keep the bench logs
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: bench-${{ matrix.runner }}
+          path: out/bench/
+          retention-days: 14

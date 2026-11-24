@@ -1,0 +1,222 @@
+#!/bin/sh
+# gw-config: generates the Asterisk configuration of the gateway from environment variables
+# (the .env file of compose.yaml). Run by the entrypoint at every start.
+#
+#   gw-config generate   validates the settings and writes $GW_ETC (default /etc/asterisk)
+#   gw-config check      validates the settings and builds the configuration in a temporary
+#                        folder, which is then removed (nothing written to $GW_ETC)
+#   gw-config show       prints the effective settings, passwords hidden
+#
+# Exit code: 0 = valid, 1 = invalid settings (nothing written).
+set -u
+
+TPL=${GW_TEMPLATES:-/usr/share/gsm-gateway/templates}
+SAMPLES=${GW_SAMPLES:-/usr/share/gsm-gateway/asterisk-samples}
+OUT=${GW_ETC:-/etc/asterisk}
+
+log() { echo "gw-config: $*" >&2; }
+
+load() {
+	MODEM_DATA_PORT=${MODEM_DATA_PORT:-/dev/serial/by-id/usb-Android_Android-if02-port0}
+	MODEM_AUDIO=${MODEM_AUDIO:-uac}
+	MODEM_ALSA_DEVICE=${MODEM_ALSA_DEVICE:-hw:CARD=Android}
+	MODEM_AUDIO_PORT=${MODEM_AUDIO_PORT:-}
+	MODEM_CLCC_POLL=${MODEM_CLCC_POLL:-1000}
+	SERVER_ENABLED=${SERVER_ENABLED:-0}
+	SERVER_MODE=${SERVER_MODE:-register}
+	SERVER_HOST=${SERVER_HOST:-}
+	SERVER_PORT=${SERVER_PORT:-5060}
+	SERVER_USERNAME=${SERVER_USERNAME:-}
+	SERVER_PASSWORD=${SERVER_PASSWORD:-}
+	SERVER_EXTENSION=${SERVER_EXTENSION:-}
+	SERVER_CODEC=${SERVER_CODEC:-ulaw}
+	SERVER_LOCAL_ADDRESS=${SERVER_LOCAL_ADDRESS:-}
+	SOFTPHONE_USERNAME=${SOFTPHONE_USERNAME:-gsm}
+	SOFTPHONE_PASSWORD=${SOFTPHONE_PASSWORD:-}
+	SOFTPHONE_NETWORK=${SOFTPHONE_NETWORK:-}
+	INCOMING_CALLS_TO=${INCOMING_CALLS_TO:-auto}
+	GSM_ECHO_TEST=${GSM_ECHO_TEST:-0}
+	USSD_ENABLED=${USSD_ENABLED:-1}
+	USSD_LOG_TEXT=${USSD_LOG_TEXT:-0}
+	RINGBACK=${RINGBACK:-network}
+	JITTER_BUFFER=${JITTER_BUFFER:-adaptive}
+	COUNTRY=${COUNTRY:-fr}
+	SIP_BIND=${SIP_BIND:-0.0.0.0}
+	SIP_PORT=${SIP_PORT:-5060}
+	RTP_START=${RTP_START:-10000}
+	RTP_END=${RTP_END:-10100}
+	GSM_VERBOSE=${GSM_VERBOSE:-0}
+	SOFTPHONE_ON=0; [ -n "$SOFTPHONE_PASSWORD" ] && SOFTPHONE_ON=1
+	SERVER_ON=0; [ "$SERVER_ENABLED" = 1 ] && SERVER_ON=1
+}
+
+# value safe in Asterisk files: no ; \ " or newline (& and | are escaped by sedq)
+safe() { case "$1" in *';'*|*'\'*|*'"'*|*"
+"*) return 1 ;; esac; return 0; }
+match() { printf '%s' "$1" | grep -q -E "$2"; }
+num() { match "$1" '^[0-9]+$'; }
+ipv4() { match "$1" '^([0-9]{1,3}\.){3}[0-9]{1,3}$'; }
+host() { match "$1" '^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$'; }
+
+validate() {
+	ok=0
+	bad() { log "$*"; ok=1; }
+	match "$MODEM_DATA_PORT" '^/dev/[A-Za-z0-9/._:+-]+$' || bad "MODEM_DATA_PORT: a /dev path is required"
+	case "$MODEM_AUDIO" in
+		uac) match "$MODEM_ALSA_DEVICE" '^[A-Za-z0-9:=,_.-]+$' || bad "MODEM_ALSA_DEVICE: invalid ALSA device name" ;;
+		serial) match "$MODEM_AUDIO_PORT" '^/dev/[A-Za-z0-9/._:+-]+$' || bad "MODEM_AUDIO_PORT: a /dev path is required when MODEM_AUDIO=serial" ;;
+		*) bad "MODEM_AUDIO: uac or serial" ;;
+	esac
+	num "$MODEM_CLCC_POLL" && { [ "$MODEM_CLCC_POLL" = 0 ] || { [ "$MODEM_CLCC_POLL" -ge 250 ] && [ "$MODEM_CLCC_POLL" -le 10000 ]; }; } \
+		|| bad "MODEM_CLCC_POLL: 0 (off) or 250 to 10000 ms"
+	case "$SERVER_ENABLED" in 0|1) ;; *) bad "SERVER_ENABLED: 0 or 1" ;; esac
+	if [ "$SERVER_ON" = 1 ]; then
+		host "$SERVER_HOST" || bad "SERVER_HOST: host name or IPv4 address required"
+		num "$SERVER_PORT" && [ "$SERVER_PORT" -le 65535 ] || bad "SERVER_PORT: invalid port"
+		match "$SERVER_EXTENSION" '^[0-9A-Za-z_+.-]+$' || bad "SERVER_EXTENSION: required (the extension that receives GSM calls and SMS)"
+		match "$SERVER_CODEC" '^(ulaw|alaw)(,(ulaw|alaw))?$' || bad "SERVER_CODEC: ulaw, alaw, ulaw,alaw or alaw,ulaw"
+		case "$SERVER_MODE" in
+			register)
+				match "$SERVER_USERNAME" '^[0-9A-Za-z_.+-]+$' || bad "SERVER_USERNAME: required in register mode"
+				[ -n "$SERVER_PASSWORD" ] && safe "$SERVER_PASSWORD" || bad "SERVER_PASSWORD: required in register mode, without ; \\ \" or newline" ;;
+			ip)
+				[ -z "$SERVER_LOCAL_ADDRESS" ] || host "$SERVER_LOCAL_ADDRESS" || bad "SERVER_LOCAL_ADDRESS: host name or IPv4 address" ;;
+			*) bad "SERVER_MODE: register or ip" ;;
+		esac
+	fi
+	if [ "$SOFTPHONE_ON" = 1 ]; then
+		match "$SOFTPHONE_USERNAME" '^[0-9A-Za-z_.+-]+$' || bad "SOFTPHONE_USERNAME: letters, digits, _ . + - only"
+		# the account is also the name of the PJSIP endpoint (Asterisk matches the From user, or the
+		# user name of the authentication, to the endpoint name): not one of the other sections
+		case "$SOFTPHONE_USERNAME" in
+			global|transport-udp|softphone-auth|server|server-aor|server-auth|server-reg|server-identify)
+				bad "SOFTPHONE_USERNAME: $SOFTPHONE_USERNAME is reserved" ;;
+		esac
+		safe "$SOFTPHONE_PASSWORD" || bad "SOFTPHONE_PASSWORD: without ; \\ \" or newline"
+		[ "${#SOFTPHONE_PASSWORD}" -ge 8 ] || bad "SOFTPHONE_PASSWORD: at least 8 characters"
+		match "$SOFTPHONE_NETWORK" '^([0-9]{1,3}\.){3}[0-9]{1,3}/[0-9]{1,2}$' \
+			|| bad "SOFTPHONE_NETWORK: the network the softphone connects from, e.g. 192.168.1.0/24"
+		[ "$SOFTPHONE_NETWORK" != 0.0.0.0/0 ] || log "warning: SOFTPHONE_NETWORK=0.0.0.0/0 accepts the softphone from anywhere"
+	fi
+	for v in GSM_ECHO_TEST USSD_ENABLED USSD_LOG_TEXT; do
+		eval "x=\$$v"; case "$x" in 0|1) ;; *) bad "$v: 0 or 1" ;; esac
+	done
+	case "$RINGBACK" in local) RINGBACK_OPT=r ;; network) RINGBACK_OPT= ;; *) bad "RINGBACK: local or network" ;; esac
+	case "$JITTER_BUFFER" in adaptive|fixed|off) ;; *) bad "JITTER_BUFFER: adaptive, fixed or off" ;; esac
+	match "$COUNTRY" '^[a-z]{2}$' || bad "COUNTRY: two-letter code, e.g. fr"
+	ipv4 "$SIP_BIND" || bad "SIP_BIND: IPv4 address (0.0.0.0 = all addresses of the host)"
+	num "$SIP_PORT" && [ "$SIP_PORT" -le 65535 ] || bad "SIP_PORT: invalid port"
+	num "$RTP_START" && num "$RTP_END" && [ "$RTP_START" -lt "$RTP_END" ] && [ "$RTP_END" -le 65535 ] || bad "RTP_START, RTP_END: port range"
+	num "$GSM_VERBOSE" && [ "$GSM_VERBOSE" -le 5 ] || bad "GSM_VERBOSE: 0 to 5"
+	# destinations of incoming GSM calls
+	srv=; sp=
+	[ "$SERVER_ON" = 1 ] && srv="PJSIP/$SERVER_EXTENSION@server"
+	[ "$SOFTPHONE_ON" = 1 ] && sp="PJSIP/$SOFTPHONE_USERNAME"
+	case "$INCOMING_CALLS_TO" in
+		auto) GSM_IN_DIAL=${srv:-$sp} ;;
+		server) [ -n "$srv" ] || bad "INCOMING_CALLS_TO=server but SERVER_ENABLED=0"; GSM_IN_DIAL=$srv ;;
+		softphone) [ -n "$sp" ] || bad "INCOMING_CALLS_TO=softphone but SOFTPHONE_PASSWORD is empty"; GSM_IN_DIAL=$sp ;;
+		both) GSM_IN_DIAL=$srv${srv:+${sp:+&}}$sp
+		      [ -n "$srv" ] && [ -n "$sp" ] || log "warning: INCOMING_CALLS_TO=both, but only one destination is enabled" ;;
+		*) bad "INCOMING_CALLS_TO: auto, server, softphone or both" ;;
+	esac
+	[ "$SERVER_ON" = 1 ] || [ "$SOFTPHONE_ON" = 1 ] || log "warning: neither a SIP server nor a softphone is enabled"
+	[ -n "${GSM_IN_DIAL:-}" ] || [ "$GSM_ECHO_TEST" = 1 ] || log "warning: no destination for incoming GSM calls, they will be rejected as busy"
+	return $ok
+}
+
+sedq() { printf '%s' "$1" | sed 's/[&|]/\\&/g'; } # value safe in a sed replacement
+
+render() { # $1 = template, $2 = destination
+	sed -e "s|@DATA_PORT@|$MODEM_DATA_PORT|g" -e "s|@AUDIO_PORT@|$MODEM_AUDIO_PORT|g" \
+	    -e "s|@ALSA_DEVICE@|$MODEM_ALSA_DEVICE|g" -e "s|@CLCC_POLL@|$MODEM_CLCC_POLL|g" \
+	    -e "s|@SERVER_ON@|$SERVER_ON|g" -e "s|@SERVER_MODE@|$SERVER_MODE|g" -e "s|@SERVER_HOST@|$SERVER_HOST|g" \
+	    -e "s|@SERVER_PORT@|$SERVER_PORT|g" -e "s|@SERVER_EXTENSION@|$SERVER_EXTENSION|g" \
+	    -e "s|@SERVER_CODEC@|$SERVER_CODEC|g" -e "s|@SERVER_USERNAME@|$SERVER_USERNAME|g" \
+	    -e "s|@SERVER_PASSWORD@|$(sedq "$SERVER_PASSWORD")|g" \
+	    -e "s|@SERVER_LOCAL_ADDRESS@|${SERVER_LOCAL_ADDRESS:-gateway}|g" \
+	    -e "s|@SOFTPHONE_ON@|$SOFTPHONE_ON|g" -e "s|@SOFTPHONE_USERNAME@|$SOFTPHONE_USERNAME|g" \
+	    -e "s|@SOFTPHONE_PASSWORD@|$(sedq "$SOFTPHONE_PASSWORD")|g" -e "s|@SOFTPHONE_NETWORK@|$SOFTPHONE_NETWORK|g" \
+	    -e "s|@GSM_IN_DIAL@|$(sedq "$GSM_IN_DIAL")|g" -e "s|@GSM_ECHO_TEST@|$GSM_ECHO_TEST|g" \
+	    -e "s|@USSD_ENABLED@|$USSD_ENABLED|g" -e "s|@USSD_LOG_TEXT@|$USSD_LOG_TEXT|g" -e "s|@RINGBACK_OPT@|$RINGBACK_OPT|g" -e "s|@JITTER_BUFFER@|$JITTER_BUFFER|g" -e "s|@COUNTRY@|$COUNTRY|g" \
+	    -e "s|@SIP_BIND@|$SIP_BIND|g" -e "s|@SIP_PORT@|$SIP_PORT|g" \
+	    -e "s|@RTP_START@|$RTP_START|g" -e "s|@RTP_END@|$RTP_END|g" -e "s|@VERBOSE@|$GSM_VERBOSE|g" \
+	    "$1" > "$2"
+}
+
+drop_blocks() { # $1 = file, then the names of the ;#BEGIN blocks to remove
+	f=$1; shift
+	for b in "$@"; do sed -i "/^;#BEGIN $b\\b/,/^;#END $b\$/d" "$f"; done
+	sed -i '/^;#\(BEGIN\|END\) /d' "$f"
+}
+
+generate() {
+	load
+	validate || { log "invalid settings: nothing generated"; return 1; }
+	umask 077
+	new=$OUT.new
+	rm -rf "$new"; mkdir -p "$new"
+	# asterisk.conf: our options only. No [directories]: Asterisk keeps the paths built into the
+	# package, right for the architecture. The sample of the Ubuntu package names the amd64 module
+	# folder in a template section (!) that Asterisk ignores; made active, it breaks arm64.
+	for f in asterisk extensions logger modules rtp; do render "$TPL/$f.conf" "$new/$f.conf"; done
+	render "$TPL/quectel.conf" "$new/quectel.conf"
+	if [ "$MODEM_AUDIO" = uac ]; then drop_blocks "$new/quectel.conf" serial; else drop_blocks "$new/quectel.conf" uac; fi
+	render "$TPL/pjsip.conf" "$new/pjsip.conf"
+	drop=
+	[ "$SOFTPHONE_ON" = 1 ] || drop="$drop softphone"
+	if [ "$SERVER_ON" = 1 ]; then
+		[ "$SERVER_MODE" = register ] && drop="$drop ip" || drop="$drop register"
+	else
+		drop="$drop server"
+	fi
+	# shellcheck disable=SC2086 # list of block names
+	drop_blocks "$new/pjsip.conf" $drop
+	# tones: our [general] section, then every country of the Asterisk file
+	render "$TPL/indications.conf" "$new/indications.conf"
+	if [ -f "$SAMPLES/indications.conf" ]; then
+		awk 'NR==FNR { if ($0 ~ /^\[/) have[$0]=1; next } /^\[/ { keep = !($0 in have) } keep' \
+			"$new/indications.conf" "$SAMPLES/indications.conf" > "$new/ind.extra"
+		cat "$new/ind.extra" >> "$new/indications.conf"; rm -f "$new/ind.extra"
+	fi
+	grep -q "^\[$COUNTRY\]" "$new/indications.conf" || { log "COUNTRY=$COUNTRY: no tone definition for this country"; rm -rf "$new"; return 1; }
+	# files read by the loaded modules: defaults, CDR and CEL off (no "Unable to load config" errors)
+	for f in ccss features udptl; do printf '[general]\n' > "$new/$f.conf"; done
+	for f in cdr cel; do printf '[general]\nenable = no\n' > "$new/$f.conf"; done
+	printf '; no named access control list\n' > "$new/acl.conf"
+	printf '[startup]\n' > "$new/pjproject.conf"
+	printf '[general]\nenabled = no\n' > "$new/manager.conf"   # no AMI
+	printf '[threadpool]\n' > "$new/stasis.conf"
+	if grep -l '@[A-Z_]*@' "$new"/*.conf >/dev/null; then
+		log "unreplaced variable in $(grep -l '@[A-Z_]*@' "$new"/*.conf | tr '\n' ' ')"; rm -rf "$new"; return 1
+	fi
+	mkdir -p "$OUT"
+	find "$OUT" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+	mv "$new"/* "$OUT"/ && rmdir "$new"
+	audio=$MODEM_ALSA_DEVICE; [ "$MODEM_AUDIO" = serial ] && audio=$MODEM_AUDIO_PORT
+	log "configuration generated: modem $MODEM_DATA_PORT, audio $MODEM_AUDIO ($audio)," \
+	    "server $([ "$SERVER_ON" = 1 ] && echo "$SERVER_MODE $SERVER_HOST" || echo off)," \
+	    "softphone $([ "$SOFTPHONE_ON" = 1 ] && echo "on ($SOFTPHONE_NETWORK)" || echo off)," \
+	    "incoming calls to ${GSM_IN_DIAL:-nobody}$([ "$GSM_ECHO_TEST" = 1 ] && echo ' (echo test on)')"
+}
+
+show() {
+	load
+	for v in MODEM_DATA_PORT MODEM_AUDIO MODEM_ALSA_DEVICE MODEM_AUDIO_PORT MODEM_CLCC_POLL \
+	         SERVER_ENABLED SERVER_MODE SERVER_HOST SERVER_PORT SERVER_USERNAME SERVER_PASSWORD SERVER_EXTENSION \
+	         SERVER_CODEC SERVER_LOCAL_ADDRESS SOFTPHONE_USERNAME SOFTPHONE_PASSWORD SOFTPHONE_NETWORK \
+	         INCOMING_CALLS_TO GSM_ECHO_TEST USSD_ENABLED USSD_LOG_TEXT RINGBACK JITTER_BUFFER COUNTRY SIP_BIND SIP_PORT RTP_START RTP_END GSM_VERBOSE; do
+		eval "x=\$$v"
+		case "$v" in *PASSWORD) [ -n "$x" ] && x='<hidden>' ;; esac
+		echo "$v=$x"
+	done
+}
+
+case "${1:-}" in
+	generate) generate ;;
+	check) tmp=$(mktemp -d); OUT=$tmp/etc
+		if generate 2>"$tmp/log"; then rc=0; log "settings valid"; else rc=1; grep -v "configuration generated" "$tmp/log" >&2; fi
+		rm -rf "$tmp"; exit "$rc" ;;
+	show) show ;;
+	*) echo "usage: $0 generate|check|show" >&2; exit 2 ;;
+esac

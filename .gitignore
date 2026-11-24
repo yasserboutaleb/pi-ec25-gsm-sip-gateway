@@ -1,0 +1,35 @@
+# Secrets
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+*.key
+*.pem
+*.p12
+*.pfx
+*.secret
+secrets/
+
+# Runtime and private configurations
+*.conf
+!*.conf.example
+data/
+logs/
+backups/
+
+# Build artifacts
+*.tar
+*.tar.gz
+*.img
+*.qcow2
+*.pyc
+__pycache__/
+build/
+
+# Bench results (tests/bench.sh)
+out/
+
+# Asterisk templates of the gateway (the generated *.conf stay ignored)
+!gateway/templates/*.conf

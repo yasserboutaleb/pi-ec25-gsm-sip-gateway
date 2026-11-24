@@ -1,0 +1,6 @@
+# Bench image: the gateway image plus the tools of the functional bench (simulated modem on a
+# pseudo-terminal). Never deployed. IMAGE = gateway image to test (tests/bench.sh).
+ARG IMAGE=pi-ec25-gsm-sip-gateway:bench
+FROM ${IMAGE}
+RUN apt-get update && apt-get install -y --no-install-recommends socat python3 procps \
+ && rm -rf /var/lib/apt/lists/*

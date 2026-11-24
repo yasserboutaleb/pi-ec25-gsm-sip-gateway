@@ -1,0 +1,28 @@
+# pi-ec25-gsm-sip-gateway: one container, Asterisk + chan_quectel, configured by .env.
+#
+#   cp .env.example .env && chmod 600 .env    then edit .env
+#   docker compose up -d --build
+#   docker compose exec gateway gw-check
+services:
+  gateway:
+    build: .
+    image: pi-ec25-gsm-sip-gateway:local
+    container_name: gsm-gateway
+    restart: unless-stopped
+    # SIP and RTP straight on the host's addresses: no NAT between the softphone or the PBX and
+    # Asterisk. Filter SIP_PORT and RTP_START-RTP_END on the host firewall (docs/SECURITY.md).
+    network_mode: host
+    env_file: .env
+    # The modem can disappear and come back under another /dev/ttyUSBn (USB reset, reboot of the
+    # module): /dev is shared with the container, which may only open serial ports (188, ttyUSB)
+    # and sound devices (116, ALSA). MODEM_DATA_PORT points to a stable /dev/serial/by-id link.
+    volumes:
+      - /dev:/dev
+    device_cgroup_rules:
+      - "c 188:* rmw"
+      - "c 116:* rmw"
+    logging:
+      driver: local
+      options:
+        max-size: "5m"
+        max-file: "3"

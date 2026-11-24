@@ -1,0 +1,41 @@
+#!/bin/sh
+# gw-check: read-only status of the gateway (modem, GSM network, SIP).
+#   docker compose exec gateway gw-check
+#   gw-check --health      Docker health check: Asterisk answers and the modem is connected
+# Identifiers (IMEI, IMSI, ICCID, own number, cell) are never printed.
+#
+# Only "quectel show devices" is used: with chan_quectel up to 3ee2fd6, "quectel show device state"
+# crashes Asterisk while the modem is not connected or not registered yet (out-of-range table
+# read in enum2str_def, registration status -1).
+set -u
+ast() { asterisk -rx "$1" 2>/dev/null; }
+# columns of "quectel show devices": ID(12) Group(5) State(10) RSSI(4) Mode(4) ...
+row=$(ast 'quectel show devices' | grep '^quectel0 ')
+state=$(printf '%s' "$row" | cut -c20-29 | sed 's/ *$//')
+case "$state" in "Not connec") state="Not connected" ;; "Not initia") state="Not initialized" ;; "GSM not re") state="GSM not registered" ;; esac
+
+if [ "${1:-}" = --health ]; then
+	[ -n "$row" ] || { echo "Asterisk or the driver does not answer"; exit 1; }
+	case "$state" in "Not connec"*|Stopped) echo "modem: $state"; exit 1 ;; esac
+	echo "modem: $state"; exit 0
+fi
+
+ast 'core show version' | head -1
+sed 's/^/chan_quectel /' /usr/share/gsm-gateway/chan_quectel.source 2>/dev/null
+echo
+echo "Modem"
+if [ -z "$row" ]; then
+	echo "  Asterisk or the driver does not answer"
+else
+	rssi=$(printf '%s' "$row" | cut -c31-34 | tr -d ' ')
+	mode=$(printf '%s' "$row" | cut -c36-39 | tr -d ' ')
+	case "$mode" in 0) mode="no service" ;; 1) mode=GSM ;; 2) mode=GPRS ;; 3) mode=EDGE ;; 4) mode=WCDMA ;;
+		5) mode=HSDPA ;; 6) mode=HSUPA ;; 7) mode=HSPA ;; 8) mode=LTE ;; esac
+	echo "  State : $state (Free = ready; NoVoice = voice not enabled; GSM not registered = no network or SIM)"
+	echo "  RSSI  : $rssi (0-31; 99 = unknown)"
+	echo "  Mode  : $mode"
+fi
+echo
+echo "SIP"
+ast 'pjsip show registrations' | grep -E '^ *server-reg' || echo "  no registration to a server (ip mode or server disabled)"
+ast 'pjsip show contacts' | grep -E '^ *Contact:' | grep -v '<Aor/ContactUri' || echo "  no contact (softphone not registered, server not qualified)"
