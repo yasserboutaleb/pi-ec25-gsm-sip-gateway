@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.2 (2026-11-24)
+
+- `DIAL_ALLOW` accepts commas, as in `[0-9]{2,3}`: they were refused, and the gateway did not
+  start with such a pattern.
+
 ## 0.1.1 (2026-11-24)
 
 - `DIAL_ALLOW`: numbers allowed for calls and SMS (regular expression), against toll fraud

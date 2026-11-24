@@ -105,11 +105,12 @@ validate() {
 	case "$RINGBACK" in local) RINGBACK_OPT=r ;; network) RINGBACK_OPT= ;; *) bad "RINGBACK: local or network" ;; esac
 	case "$JITTER_BUFFER" in adaptive|fixed|off) ;; *) bad "JITTER_BUFFER: adaptive, fixed or off" ;; esac
 	# numbers allowed for calls and SMS (extended regular expression): characters that would break the
-	# dialplan are refused; write [+] for a literal +
+	# dialplan are refused; write [+] for a literal +. A comma is accepted ({2,3}): the value only
+	# goes to LEN() and REGEX(), which do not split on commas, inside $[...] evaluated before GotoIf.
 	if [ -n "$DIAL_ALLOW" ]; then
 		case "$DIAL_ALLOW" in
-			*[[:space:]\\\"\;,]* | *'${'* | *'$['*)
-				bad 'DIAL_ALLOW: no space, backslash, quote, semicolon, comma, ${ or $[ (write [+] for a literal +)' ;;
+			*[[:space:]\\\"\;]* | *'${'* | *'$['*)
+				bad 'DIAL_ALLOW: no space, backslash, quote, semicolon, ${ or $[ (write [+] for a literal +)' ;;
 			*)
 				rc=0; printf '' | grep -E -e "$DIAL_ALLOW" >/dev/null 2>&1 || rc=$?
 				[ "$rc" -le 1 ] || bad "DIAL_ALLOW: invalid regular expression" ;;

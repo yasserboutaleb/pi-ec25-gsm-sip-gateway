@@ -246,7 +246,7 @@ kill $REG 2>/dev/null
 python3 /t/fake_registrar.py 5080 - - /res/registrar-ip.log /ctrl-reg &
 REG=$!
 restart_gw SERVER_ENABLED=1 SERVER_MODE=ip SERVER_HOST=127.0.0.1 SERVER_PORT=5080 SERVER_EXTENSION=102 \
-	SERVER_LOCAL_ADDRESS=127.0.0.1 SOFTPHONE_PASSWORD= GSM_ECHO_TEST=0 USSD_LOG_TEXT=1 'DIAL_ALLOW=^(0[5-7]|[+]33[67])'
+	SERVER_LOCAL_ADDRESS=127.0.0.1 SOFTPHONE_PASSWORD= GSM_ECHO_TEST=0 USSD_LOG_TEXT=1 'DIAL_ALLOW=^([0-9]{2,3}|0[5-7][0-9]{8}|[+]33[67][0-9]{8})$'
 astrx 'channel originate Local/s@ussd-console application QUECTEL_SEND_USSD quectel0,*102#' >/dev/null
 wait_grep /res/asterisk.out 'Got USSD type' 15
 check "USSD_LOG_TEXT=1: reply text in the log, in the driver's format (local tools)" "grep -a -q \"Got USSD type 0 '[^']*': \[Balance: 12.50 EUR, valid until 31/12, café included\]\" /res/asterisk.out"
@@ -260,7 +260,8 @@ echo "invite 0639980025" > /ctrl-reg
 dial_wait 0639980025
 check "ip mode: call from the server dialled to GSM" "grep -q 'ATD0639980025;' /res/at.log"
 echo "cancel" > /ctrl-reg; wait_free 10 >/dev/null
-# DIAL_ALLOW (^(0[5-7]|[+]33[67]) here): a number outside the pattern is refused, call and SMS
+# DIAL_ALLOW (short numbers, national mobiles and +33 mobiles here, with a {2,3} comma): a number
+# outside the pattern is refused, call and SMS
 python3 /t/sip_client.py message +88212345678 'premium' --user 102 > /res/sip-deny-msg.out 2>&1
 python3 /t/sip_client.py call +88212345679 --user 102 --wait 6 > /res/sip-deny-call.out 2>&1
 sleep 2
