@@ -61,7 +61,7 @@ softphone registered with the account `gsm`:
 | Page | Content |
 |---|---|
 | [INSTALL](docs/INSTALL.md) | host preparation, settings, softphone, everyday use |
-| [HARDWARE](docs/HARDWARE.md) | reference set-up, USB audio of the EC25, SIM, power |
+| [HARDWARE](docs/HARDWARE.md) | reference set-up with photos, USB audio of the EC25, SIM, power and USB cable |
 | [SIP-SERVER](docs/SIP-SERVER.md) | connecting an Asterisk or FreePBX server, `register` and `ip` modes, NAT |
 | [SECURITY](docs/SECURITY.md) | exposure, host firewall, access control, secrets, logs |
 | [TROUBLESHOOTING](docs/TROUBLESHOOTING.md) | modem states, sound, softphone, calls, SMS |

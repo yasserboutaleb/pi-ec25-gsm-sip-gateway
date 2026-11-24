@@ -51,7 +51,8 @@ silent both ways. Keep `JITTER_BUFFER=adaptive` (the default), or try `fixed`. O
 ## The module disappears during calls, or resets
 
 Almost always the power supply. `vcgencmd get_throttled` on a Raspberry Pi shows past
-under-voltage (any value other than `0x0`). Use the official supply and a powered USB hub, see
+under-voltage (any value other than `0x0`). Use the official supply, a powered USB hub and a
+short, good-quality USB cable to the adapter, see
 [HARDWARE.md](HARDWARE.md#power). The container keeps running and the driver reconnects when
 the module is back.
 

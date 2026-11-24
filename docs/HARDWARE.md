@@ -8,13 +8,27 @@ The gateway is developed and tested on this hardware:
 |---|---|---|
 | Host | Raspberry Pi 3 Model B+ | Raspberry Pi OS (Debian 13), 64-bit (aarch64) |
 | Module | Quectel **EC25-E**, mini PCIe | firmware `EC25EFAR06A10M4G`, USB id `2c7c:0125` |
-| Adapter | mini PCIe to USB-C adapter with a standard-size SIM slot | USB 2.0, powered by the USB port only |
-| Hub | powered USB 2.0 hub | recommended, see [Power](#power) |
-| Antennas | the module's main antenna (and the diversity one if the adapter has two connectors) | no network registration without an antenna |
+| Adapter | mini PCIe to USB-C adapter in an aluminium case ("4G LTE Wireless Network Card, USB Type-C"), standard-size SIM slot, two SMA connectors | USB 2.0, powered by the USB port only |
+| Hub | 4-port USB 2.0 hub board, FE1.1s chip, USB-C upstream port and 5 V barrel jack (board marked `USB_HUB_FE1.1S_USBA`, USB id `1a40:0101`) | powered through its 5 V jack: recommended, see [Power](#power) |
+| Antennas | two LTE antennas on the SMA connectors: main and diversity (u.FL cables inside the case) | no network registration without the main antenna |
 
 Other hosts should work but are **not tested**: Raspberry Pi 4 or 5, or any amd64/arm64 Linux
 machine with Docker. Other EC25 variants (EC25-A, -AU, -J...) use the same AT commands; pick the
 one for your region's bands. The EG25-G probably works too, untested.
+
+| | |
+|---|---|
+| ![EC25-E module in the mini PCIe to USB-C adapter, case open, two u.FL to SMA cables](images/ec25-adapter-open.jpg) | ![The adapter in its case with its two antennas](images/ec25-adapter-case.jpg) |
+| EC25-E in the adapter (labels with identifiers masked) | the adapter closed, with its two antennas |
+
+| |
+|---|
+| ![4-port USB 2.0 hub board: 5 V barrel jack, USB-C upstream port, FE1.1s chip](images/usb-hub-top.jpg) |
+| ![Back of the hub board, marked USB_HUB_FE1.1S_USBA](images/usb-hub-bottom.jpg) |
+| the hub board: 5 V jack and USB-C upstream port at the top, four USB-A ports |
+
+Keep the identifiers of your own module private: the IMEI and the serial number are printed on
+its label, also in the square 2D code.
 
 ## The EC25 on USB
 
@@ -96,7 +110,11 @@ The module draws current peaks during calls and at network registration. With a 
 the module resets or disappears from USB, often during a call.
 
 - Use a good power supply for the Pi (the official 5.1 V, 2.5 A supply for a Pi 3).
-- Plug the module through a **powered** USB hub, or check that the Pi's supply has margin.
+- Plug the module through a **powered** USB hub (the reference hub has a 5 V jack for its own
+  supply), or check that the Pi's supply has margin.
+- Use a **short, good-quality USB cable** between the adapter and the hub or the Pi. A long or
+  thin cable drops the voltage during the current peaks, and the module resets in the middle
+  of a call, while everything looks fine at rest.
 - Check for past under-voltage on a Raspberry Pi:
 
   ```
